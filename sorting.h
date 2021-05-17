@@ -19,17 +19,16 @@ void bubble_sort(int * array, int size) {
 
 void quick_sort_helper(int * array, int start, int end) {
 	int i, j, pivot, temp;
+	pivot = start;
+	i = start;
+	j = end;
 	if(start < end) {
-		pivot = start;
-		i = start;
-		j = end;
-
 		while (i < j) {
 			while (array[i] <= array[pivot] && i < end) {
 				i++;
 			}
 
-			while (array[j] > array[pivot]) {
+			while (array[j] > array[pivot] && j > start) {
 				j--;
 			}
 
@@ -37,19 +36,20 @@ void quick_sort_helper(int * array, int start, int end) {
 				swap(array + i, array + j);
 			}
 		}
+
+		temp = array[pivot];
+		array[pivot] = array[j];
+		array[j] = temp;
+
+		quick_sort_helper(array, start, j - 1);
+		quick_sort_helper(array, j + 1, end);
+
 	}
-
-	temp = array[pivot];
-	array[pivot] = array[j];
-	array[j] = temp;
-
-	quick_sort_helper(array, start, j - 1);
-	quick_sort_helper(array, j + 1, end);
 }
 
 
 void quick_sort(int  * array, int size) {
-	quick_sort_helper(array, 0, size);
+	quick_sort_helper(array, 0, size - 1);
 }
 
 
