@@ -5,23 +5,57 @@
 #include <time.h>
 
 #include "sorting.h"
+#include "client.h"
 
 #define CHUNK_SIZE 10
- 
+
 int load_array(char * filename, int ** array);
 
- 
 void benchmark_sort(void (*f)(int *, int), int * array, int array_size);
 
-int main() {
-	int * array;
-	int size = load_array("test_data_5", &array);
-	
-	benchmark_sort(&bubble_sort, array, size);
+void init_benchmark();
 
+void start_console_dialog();
+
+void start_server();
+
+struct sorting_algorithm {
+	char * algorithm_name;
+	void (* sorting_algo_f) (int *, int);
+};
+
+
+struct sort_res
+{
+	int array_size;
+	char * filename;
+	char * sorting_algo;
+};
+
+
+int main(int argc, char * argv) {
+	int pid = fork();
+
+	if (pid != 0) {
+		start_console_dialog();
+	} else {
+		start_server();
+	}
 	return 0;
 }
- 
+
+
+void init_benchmark() {
+	struct sorting_algorithm sorting_algos[] = {
+		{.algorithm_name = "BubbleSort", .sorting_algo_f = &bubble_sort},
+		{.algorithm_name = "QuickSort", .sorting_algo_f = &quick_sort},
+		{.algorithm_name = "SelectionSort", .sorting_algo_f = &selection_sort},
+		{.algorithm_name = "HeapSort", .sorting_algo_f = &heap_sort},
+		{.algorithm_name = "StableSelectionSort", .sorting_algo_f = &stable_selection_sort},
+	};
+}
+
+
 int load_array(char * filename, int ** result_array) {
 	FILE * fd = fopen(filename, "r");
 	int allocated_size = CHUNK_SIZE;
@@ -51,4 +85,55 @@ void benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_si
 
 	printf("%ld, %ld, %ld\n", start, end, end - start);
 	free(array);
+}
+
+
+int write_to_file(int * fd, char * buffer) {
+	printf("[writing..]%s\n", buffer);
+	int i;
+	for(i = 0; i < BUFFER_SIZE; i++) {
+		if(buffer[i] == '\0') {
+			break;
+		}
+		if(buffer[i] == EOF) {
+			return 1;
+		}
+	}
+	int size = write(*fd, buffer, i);
+	if(size < 0) {
+		perror("Error while writing");
+	}
+	return 0;
+}
+
+
+void start_server() {
+	struct sockaddr_in addr_con;
+	int addrlen = sizeof(addr_con);
+	
+	addr_con.sin_family = AF_INET;
+	addr_con.sin_port = htons(PORT);
+	addr_con.sin_addr.s_addr = INADDR_ANY;
+
+	char buffer[BUFFER_SIZE];
+
+	int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sock_fd < 0) {
+		perror("Error on socket connection");
+	} else if(bind(sock_fd, (struct sockaddr*)&addr_con, sizeof(addr_con))) {
+		perror("Error while binding");
+	} else {
+		while (1) {
+
+			int fd = open("testFile.txt", O_CREAT | O_WRONLY, 0777);
+
+			while(1) {
+				memset(buffer, '\0', BUFFER_SIZE);
+				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+				if(write_to_file(&fd, buffer)) {
+					break;
+				}
+			}
+		}
+	}
 }
