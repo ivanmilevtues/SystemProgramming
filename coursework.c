@@ -109,8 +109,10 @@ int write_to_file(int * fd, char * buffer) {
 
 void start_server() {
 	struct sockaddr_in addr_con;
+	char filename[128] = "test/";
 	int addrlen = sizeof(addr_con);
-	
+	int struct_size;
+
 	addr_con.sin_family = AF_INET;
 	addr_con.sin_port = htons(PORT);
 	addr_con.sin_addr.s_addr = INADDR_ANY;
@@ -124,9 +126,14 @@ void start_server() {
 		perror("Error while binding");
 	} else {
 		while (1) {
+			struct parsed_command cmnd;
+			recvfrom(sock_fd, &struct_size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
+			recvfrom(sock_fd, &cmnd, struct_size, 0, (struct sockaddr*) &addr_con, &addrlen);
+			strcat(filename, cmnd.filename);
 
-			int fd = open("testFile.txt", O_CREAT | O_WRONLY, 0777);
+			int fd = open(filename, O_CREAT | O_WRONLY, 0777);
 
+			printf("%d, %s|%s\n", struct_size, filename, cmnd.filename);
 			while(1) {
 				memset(buffer, '\0', BUFFER_SIZE);
 				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
@@ -134,6 +141,8 @@ void start_server() {
 					break;
 				}
 			}
+
+			close(fd);
 		}
 	}
 }

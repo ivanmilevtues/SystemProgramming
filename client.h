@@ -26,7 +26,7 @@ void start_console_dialog() {
 	printf("Enter what kind of benchmark you want to run...:\n");
 	printf("In order to start the benchmark enter command with the following format:\n");
 	printf("sort <pathToFileWithBenchmarkData> <algorithmName1> <algorithmName2> <algorithmName3>\n");
-	printf("You can pass as many alogrithms as you want from the following list: ");
+	printf("You can pass as many alogrithms as you want from the following list:\n ");
 	printf("BubbleSort, QuickSort, SelectionSort, HeapSort, StableSelectionSort\n");
 
 	char buffer[100];
@@ -87,13 +87,15 @@ void send_data(struct parsed_command cmnd) {
 	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	int fd = open(cmnd.filename, O_RDONLY);
+	int struct_size = sizeof(cmnd);
+
+	sendto(sock_fd, &struct_size, sizeof(int), 0, (struct sockaddr*) &addr_con, addrlen);
+	sendto(sock_fd, &cmnd, sizeof(cmnd), 0, (struct sockaddr*) &addr_con, addrlen);
 
 	if (sock_fd < 0) {
 		perror("socket initialization failed\n");
 	} else {
-		printf("data sending....");
 		while(read_file_buf(&fd, buffer)) {
-			printf("[Sending...]%s\n", buffer);
 			sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
 			memset(buffer, '\0', BUFFER_SIZE);
 		}
