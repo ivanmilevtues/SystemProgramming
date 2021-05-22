@@ -110,8 +110,10 @@ int write_to_file(int * fd, char * buffer) {
 void start_server() {
 	struct sockaddr_in addr_con;
 	char filename[128] = "test/";
+	char file[BUFFER_SIZE];
+
 	int addrlen = sizeof(addr_con);
-	int struct_size;
+	int size;
 
 	addr_con.sin_family = AF_INET;
 	addr_con.sin_port = htons(PORT);
@@ -127,7 +129,7 @@ void start_server() {
 	} else {
 		while (1) {
 			struct parsed_command cmnd;
-			recvfrom(sock_fd, &struct_size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
+			recvfrom(sock_fd, &file, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
 			recvfrom(sock_fd, &cmnd, struct_size, 0, (struct sockaddr*) &addr_con, &addrlen);
 			strcat(filename, cmnd.filename);
 

@@ -15,6 +15,7 @@
 
 struct parsed_command {
 	char * filename;
+	int number_of_algos;
 	char * algorithms[5];
 };
 
@@ -58,6 +59,7 @@ struct parsed_command * algorithms(char * command) {
 
 		token = strtok(NULL, " ");
 	}
+	parsed_cmnd.number_of_algos = indx;
 	return parsed_cmnd;
 }
 
@@ -71,8 +73,21 @@ int read_file_buf(int* fd, char * buf) {
 }
 
 
+int write_to_buffer(int indx, char * read_from, char * buffer) {
+	int i;
+	for(i = 0; i < BUFFER_SIZE; i++, indx++) {
+		if(read_from[indx] == '\0') {
+			return -1;
+		}
+		buffer[i] = read_from[indx];
+	}
+
+	return indx;
+}
+
+
 void send_data(struct parsed_command cmnd) {
-	int sock_fd;
+	int sock_fd, i;
 	struct sockaddr_in addr_con;
 	int addrlen = sizeof(addr_con);
 
@@ -87,10 +102,18 @@ void send_data(struct parsed_command cmnd) {
 	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	int fd = open(cmnd.filename, O_RDONLY);
-	int struct_size = sizeof(cmnd);
 
-	sendto(sock_fd, &struct_size, sizeof(int), 0, (struct sockaddr*) &addr_con, addrlen);
-	sendto(sock_fd, &cmnd, sizeof(cmnd), 0, (struct sockaddr*) &addr_con, addrlen);
+	sendto(sock_fd, cmnd.filename, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
+	sendto(sock_fd, cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
+
+	for(i = 0; i < cmnd.number_of_algos; i++) {
+		int indx = 0;
+		while(indx != -1) {
+			memset(buffer, '\0', BUFFER_SIZE);
+			indx = write_to_buffer(indx, cmnd.alogrithms[i], buffer);
+			sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
+		}
+	}
 
 	if (sock_fd < 0) {
 		perror("socket initialization failed\n");
