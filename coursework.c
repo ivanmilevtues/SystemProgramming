@@ -33,13 +33,13 @@ struct sort_res
 };
 
 
-int main(int argc, char * argv) {
+int main(int argc, char ** argv) {
 	int pid = fork();
 
 	if (pid != 0) {
-		start_console_dialog();
-	} else {
 		start_server();
+	} else {
+		start_console_dialog();
 	}
 	return 0;
 }
@@ -89,11 +89,11 @@ void benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_si
 
 
 int write_to_file(int * fd, char * buffer) {
-	printf("[writing..]%s\n", buffer);
 	int i;
 	for(i = 0; i < BUFFER_SIZE; i++) {
+		printf("%c\n", buffer[i]);
 		if(buffer[i] == '\0') {
-			break;
+			return 1;
 		}
 		if(buffer[i] == EOF) {
 			return 1;
@@ -108,12 +108,12 @@ int write_to_file(int * fd, char * buffer) {
 
 
 void start_server() {
+	int i, size = BUFFER_SIZE;
 	struct sockaddr_in addr_con;
 	char filename[128] = "test/";
 	char file[BUFFER_SIZE];
 
 	int addrlen = sizeof(addr_con);
-	int size;
 
 	addr_con.sin_family = AF_INET;
 	addr_con.sin_port = htons(PORT);
@@ -129,13 +129,38 @@ void start_server() {
 	} else {
 		while (1) {
 			struct parsed_command cmnd;
-			recvfrom(sock_fd, &file, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-			recvfrom(sock_fd, &cmnd, struct_size, 0, (struct sockaddr*) &addr_con, &addrlen);
+			int indx;
+
+			if (recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
+				perror("Error recieving data");
+			}
+
+			cmnd.filename = malloc(sizeof(char) * size);
+			while((indx = write_to_buffer(indx, buffer, cmnd.filename)) != -1)  {
+				memset(buffer, '\0', BUFFER_SIZE);
+				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+				size += BUFFER_SIZE;
+				cmnd.filename = realloc(cmnd.filename, sizeof(char) * size);
+			}
 			strcat(filename, cmnd.filename);
+			free(cmnd.filename);
+			cmnd.filename = filename;
 
 			int fd = open(filename, O_CREAT | O_WRONLY, 0777);
+			if (fd < 0) {
+				perror("Error opening file");
+			}
 
-			printf("%d, %s|%s\n", struct_size, filename, cmnd.filename);
+			int number_of_algos;
+			recvfrom(sock_fd, &number_of_algos, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
+
+			for(i = 0; i < number_of_algos; i++) {
+				memset(buffer, '\0', BUFFER_SIZE);
+				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+				cmnd.algorithms[i] = malloc(sizeof(char) * BUFFER_SIZE);
+				strcpy(cmnd.algorithms[i], buffer);
+			}
+
 			while(1) {
 				memset(buffer, '\0', BUFFER_SIZE);
 				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
@@ -143,7 +168,6 @@ void start_server() {
 					break;
 				}
 			}
-
 			close(fd);
 		}
 	}

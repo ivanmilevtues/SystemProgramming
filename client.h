@@ -59,7 +59,7 @@ struct parsed_command * algorithms(char * command) {
 
 		token = strtok(NULL, " ");
 	}
-	parsed_cmnd.number_of_algos = indx;
+	(*parsed_cmnd).number_of_algos = indx;
 	return parsed_cmnd;
 }
 
@@ -87,7 +87,7 @@ int write_to_buffer(int indx, char * read_from, char * buffer) {
 
 
 void send_data(struct parsed_command cmnd) {
-	int sock_fd, i;
+	int sock_fd, i, indx = 0;
 	struct sockaddr_in addr_con;
 	int addrlen = sizeof(addr_con);
 
@@ -97,20 +97,21 @@ void send_data(struct parsed_command cmnd) {
 
 	char buffer[BUFFER_SIZE];
 
-	memset(buffer, '\0', BUFFER_SIZE);
-
 	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	int fd = open(cmnd.filename, O_RDONLY);
-
-	sendto(sock_fd, cmnd.filename, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
-	sendto(sock_fd, cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
+	while(indx != -1) {
+		memset(buffer, '\0', BUFFER_SIZE);
+		indx = write_to_buffer(indx, cmnd.filename, buffer);
+		sendto(sock_fd, cmnd.filename, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
+	}
+	sendto(sock_fd, &cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
 
 	for(i = 0; i < cmnd.number_of_algos; i++) {
-		int indx = 0;
+		indx = 0;
 		while(indx != -1) {
 			memset(buffer, '\0', BUFFER_SIZE);
-			indx = write_to_buffer(indx, cmnd.alogrithms[i], buffer);
+			indx = write_to_buffer(indx, cmnd.algorithms[i], buffer);
 			sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
 		}
 	}
