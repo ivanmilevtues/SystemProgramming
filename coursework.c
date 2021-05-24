@@ -173,8 +173,6 @@ struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con
 		perror("Error recieving data");
 	}
 
-	printf("File size recieved %d\n", size);
-
 	cmnd->filenames_size = size;
 	cmnd->filenames = malloc(size * sizeof(char*));
 	receive_string(cmnd->filenames, size, sock_fd, addr_con, addrlen);
@@ -182,9 +180,6 @@ struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data\n");
 	}
-
-	printf("Algorithm size recieved %d\n", size);
-
 	cmnd->algos_size = size;
 	cmnd->algorithms = malloc(size * sizeof(char*));
 
@@ -235,13 +230,9 @@ void receive_string(char ** array_to_hold, int size, int sock_fd, struct sockadd
 void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	int i, fd;
 	char buffer[BUFFER_SIZE];
-	printf("Expecting %d files\n", size);
 	for(i = 0; i < size; i++) {
 		char filename[258] = "test/";
-
 		strcat(filename, filenames[i]);
-
-		printf("filename: %s\n", filename);
 
 		if((fd = open(filename, O_CREAT | O_WRONLY, 0777)) < 0) {
 			perror("Error on file open");

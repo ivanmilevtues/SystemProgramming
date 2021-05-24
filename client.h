@@ -55,9 +55,7 @@ struct parsed_command * parse_input(char * command) {
 	(*parsed_cmnd).algorithms =  malloc(algos_size * sizeof(char *));
 
 	while(token != NULL) {
-		printf("%s\n", token);
 		if(strcmp(token, "-a") == 0) {
-			printf("-a detected\n");
 			token = strtok(NULL, " ");
 			algo_flag = 1;
 			continue;
@@ -83,7 +81,6 @@ struct parsed_command * parse_input(char * command) {
 
 	(*parsed_cmnd).algos_size = algo_indx;
 	(*parsed_cmnd).filenames_size = file_indx;
-	printf("%d %d\n", (*parsed_cmnd).algos_size, (*parsed_cmnd).filenames_size);
 	return parsed_cmnd;
 }
 
@@ -124,26 +121,20 @@ void send_data(struct parsed_command cmnd) {
 	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	sendto(sock_fd, &cmnd.filenames_size, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
-	printf("Client: filenames size sent: %d\n", cmnd.filenames_size);
 
 	for(i = 0; i < cmnd.filenames_size; i++) {
 		send_string(cmnd.filenames[i], sock_fd, addr_con, addrlen);
 	}
-	printf("Client: filenames sent\n");
 
 	sendto(sock_fd, &cmnd.algos_size, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
 
-	printf("Client: algorithms size sent: %d\n", cmnd.algos_size);
 	for(i = 0; i < cmnd.algos_size; i++) {
 		send_string(cmnd.algorithms[i], sock_fd, addr_con, addrlen);
 	}
 
-	printf("Client: algorithms sent\n");
-
 	for(i = 0; i < cmnd.filenames_size; i++) {
 		send_file(cmnd.filenames[i], sock_fd, addr_con, addrlen);
 	}
-	printf("Client: Files sent...\n");
 }
 
 
