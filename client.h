@@ -14,19 +14,22 @@
 
 
 struct parsed_command {
-	char * filename;
-	int number_of_algos;
-	char * algorithms[5];
+	int filenames_size;
+	char ** filenames;
+	int algos_size;
+	char ** algorithms;
 };
 
 void send_data(struct parsed_command cmnd);
-struct parsed_command * algorithms(char * command);
+struct parsed_command * parse_input(char * command);
 
+void send_string(char * string_to_send, int sock_fd, struct sockaddr_in addr_con, int addrlen);
+void send_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
 void start_console_dialog() {
 	printf("Enter what kind of benchmark you want to run...:\n");
 	printf("In order to start the benchmark enter command with the following format:\n");
-	printf("sort <pathToFileWithBenchmarkData> <algorithmName1> <algorithmName2> <algorithmName3>\n");
+	printf("sort <pathToFileWithData1> <pathToFileWithData2> -a <algorithmName1> <algorithmName2> <algorithmName3>\n");
 	printf("You can pass as many alogrithms as you want from the following list:\n ");
 	printf("BubbleSort, QuickSort, SelectionSort, HeapSort, StableSelectionSort\n");
 
@@ -34,32 +37,53 @@ void start_console_dialog() {
 
 	scanf("%[^\n]", buffer);
 
-	struct parsed_command * cmnd = algorithms(buffer);
+	struct parsed_command * cmnd = parse_input(buffer);
 
 	send_data(*cmnd);
 }
 
 
-// TODO: Add validation...
-struct parsed_command * algorithms(char * command) {
+struct parsed_command * parse_input(char * command) {
 	struct parsed_command * parsed_cmnd = malloc(sizeof(struct parsed_command));
-	int indx = 0;
 
-	char first_try = 1;
+	int file_indx = 0, algo_indx = 0, algo_flag = 0, filenames_size = 2, algos_size = 2;
+
 	char * token = strtok(command, " ");
 	token = strtok(NULL, " "); // skip the token of "sort"
+
+	(*parsed_cmnd).filenames =  malloc(filenames_size * sizeof(char *));
+	(*parsed_cmnd).algorithms =  malloc(algos_size * sizeof(char *));
+
 	while(token != NULL) {
-		if(first_try) {
-			first_try = 0;
-			(*parsed_cmnd).filename = token;
+		printf("%s\n", token);
+		if(strcmp(token, "-a") == 0) {
+			printf("-a detected\n");
+			token = strtok(NULL, " ");
+			algo_flag = 1;
+			continue;
+		}
+
+		if(!algo_flag) {
+			if(file_indx >= filenames_size) {
+				filenames_size += 2;
+				(*parsed_cmnd).filenames =  realloc((*parsed_cmnd).filenames, filenames_size * sizeof(char *));
+			}
+			(*parsed_cmnd).filenames[file_indx++] = token;
+
 		} else {
-			(*parsed_cmnd).algorithms[indx] = token;
-			indx++;
+			if(algo_indx >= algos_size) {
+				algos_size += 2;
+				(*parsed_cmnd).algorithms =  realloc((*parsed_cmnd).algorithms, algos_size * sizeof(char *));
+			}
+			(*parsed_cmnd).algorithms[algo_indx++] = token;
 		}
 
 		token = strtok(NULL, " ");
 	}
-	(*parsed_cmnd).number_of_algos = indx;
+
+	(*parsed_cmnd).algos_size = algo_indx;
+	(*parsed_cmnd).filenames_size = file_indx;
+	printf("%d %d\n", (*parsed_cmnd).algos_size, (*parsed_cmnd).filenames_size);
 	return parsed_cmnd;
 }
 
@@ -99,22 +123,44 @@ void send_data(struct parsed_command cmnd) {
 
 	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-	int fd = open(cmnd.filename, O_RDONLY);
+	sendto(sock_fd, &cmnd.filenames_size, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
+	printf("Client: filenames size sent: %d\n", cmnd.filenames_size);
+
+	for(i = 0; i < cmnd.filenames_size; i++) {
+		send_string(cmnd.filenames[i], sock_fd, addr_con, addrlen);
+	}
+	printf("Client: filenames sent\n");
+
+	sendto(sock_fd, &cmnd.algos_size, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
+
+	printf("Client: algorithms size sent: %d\n", cmnd.algos_size);
+	for(i = 0; i < cmnd.algos_size; i++) {
+		send_string(cmnd.algorithms[i], sock_fd, addr_con, addrlen);
+	}
+
+	printf("Client: algorithms sent\n");
+
+	for(i = 0; i < cmnd.filenames_size; i++) {
+		send_file(cmnd.filenames[i], sock_fd, addr_con, addrlen);
+	}
+	printf("Client: Files sent...\n");
+}
+
+
+void send_string(char * string_to_send, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	char buffer[BUFFER_SIZE];
+	int indx = 0;
 	while(indx != -1) {
 		memset(buffer, '\0', BUFFER_SIZE);
-		indx = write_to_buffer(indx, cmnd.filename, buffer);
-		sendto(sock_fd, cmnd.filename, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
+		indx = write_to_buffer(indx, string_to_send, buffer);
+		sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
 	}
-	sendto(sock_fd, &cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr *) &addr_con, addrlen);
+}
 
-	for(i = 0; i < cmnd.number_of_algos; i++) {
-		indx = 0;
-		while(indx != -1) {
-			memset(buffer, '\0', BUFFER_SIZE);
-			indx = write_to_buffer(indx, cmnd.algorithms[i], buffer);
-			sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
-		}
-	}
+
+void send_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	int fd = open(filename, O_RDONLY);
+	char buffer[BUFFER_SIZE];
 
 	if (sock_fd < 0) {
 		perror("socket initialization failed\n");

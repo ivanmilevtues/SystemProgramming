@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "sorting.h"
 #include "client.h"
@@ -20,6 +21,12 @@ void start_benchmark(struct parsed_command cmnd);
 void start_console_dialog();
 
 void start_server();
+
+struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen);
+
+void receive_string(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen);
+
+void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
 struct sorting_algorithm {
 	char * algorithm_name;
@@ -47,12 +54,16 @@ int main(int argc, char ** argv) {
 }
 
 void start_benchmark(struct parsed_command cmnd) {
-	int i;
-	for(i = 0; i < cmnd.number_of_algos; i++) {
-		int * data_array;
-		int size = load_array(cmnd.filename, &data_array);
-		void * algorithm = get_algorithm(cmnd.algorithms[i]);
-		benchmark_sort(algorithm, data_array, size);
+	int i, k;
+	for(k = 0; k < cmnd.filenames_size; k++) {
+		for(i = 0; i < cmnd.algos_size; i++) {
+			int * data_array;
+			printf("%s\n", cmnd.filenames[k]);
+			printf("%d\n", cmnd.filenames[k]);
+			int size = load_array(cmnd.filenames[k], &data_array);
+			void * algorithm = get_algorithm(cmnd.algorithms[i]);
+			benchmark_sort(algorithm, data_array, size);
+		}
 	}
 }
 
@@ -73,17 +84,21 @@ void * get_algorithm(char * algorithm_name) {
 }
 
 int load_array(char * filename, int ** result_array) {
+	printf("fname - %s\n", filename);
+	printf("%d\n", filename);
 	FILE * fd = fopen(filename, "r");
+	if(fd == NULL) {
+		perror("Error on file opening");
+	}
 	int allocated_size = CHUNK_SIZE;
 	int size = 0;
-
 	int * array = malloc(sizeof(int) * allocated_size);
-
 	while (fscanf(fd, "%d", array + size) >= 0) {
 		if (++size > allocated_size - 1) {
 			allocated_size += CHUNK_SIZE;
 			array = realloc(array, sizeof(int) * allocated_size);
 		}
+		printf("Reading %d %d\n", size, allocated_size);
 
 	}
 	*(result_array) = array;
@@ -109,17 +124,17 @@ int write_to_file(int * fd, char * buffer) {
 	int i;
 	for(i = 0; i < BUFFER_SIZE; i++) {
 		if(buffer[i] == '\0') {
-			return 1;
+			break;
 		}
 		if(buffer[i] == EOF) {
-			return 1;
+			break;
 		}
 	}
 	int size = write(*fd, buffer, i);
 	if(size < 0) {
 		perror("Error while writing");
 	}
-	return 0;
+	return i != BUFFER_SIZE;
 }
 
 
@@ -135,7 +150,6 @@ void start_server() {
 	addr_con.sin_port = htons(PORT);
 	addr_con.sin_addr.s_addr = INADDR_ANY;
 
-	char buffer[BUFFER_SIZE];
 
 	int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock_fd < 0) {
@@ -144,48 +158,101 @@ void start_server() {
 		perror("Error while binding");
 	} else {
 		while (1) {
-			struct parsed_command cmnd;
-			int indx;
+			struct parsed_command * cmnd = receive_command(sock_fd, addr_con, addrlen);
+			start_benchmark(*cmnd);
+		}
+	}
+}
 
-			if (recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
-				perror("Error recieving data");
+struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	struct parsed_command * cmnd = malloc(sizeof(struct parsed_command));
+	int size = 0;
+	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
+		perror("Error recieving data");
+	}
+
+	printf("File size recieved %d\n", size);
+
+	cmnd->filenames_size = size;
+	cmnd->filenames = malloc(size * sizeof(char*));
+	receive_string(cmnd->filenames, size, sock_fd, addr_con, addrlen);
+
+	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
+		perror("Error recieving data\n");
+	}
+
+	printf("Algorithm size recieved %d\n", size);
+
+	cmnd->algos_size = size;
+	cmnd->algorithms = malloc(size * sizeof(char*));
+	receive_string(cmnd->algorithms, size, sock_fd, addr_con, addrlen);
+
+	receive_files(cmnd->filenames, cmnd->filenames_size, sock_fd, addr_con, addrlen);
+
+	return cmnd;
+}
+
+int read_from_buffer(int indx, char * buffer, char * array) {
+	int i;
+	for(i = 0; i < BUFFER_SIZE; i++, indx++) {
+		if(buffer[i] == '\0') {
+			return -1;
+		}
+		array[indx] = buffer[i];
+	}
+
+	return indx;
+}
+
+
+void receive_string(char ** array_to_hold, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	char buffer[BUFFER_SIZE];
+	memset(buffer, '\0', BUFFER_SIZE);
+	int i, indx;
+	
+	for(i = 0; i < size; i++) {
+		array_to_hold[i] = malloc(sizeof(char) * size);
+		recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+		indx = 0;
+		indx = read_from_buffer(indx, buffer, array_to_hold[i]);
+		
+		while(indx != -1)  {
+			size += BUFFER_SIZE;
+			array_to_hold[i] = realloc(array_to_hold[i], sizeof(char) * size);
+
+			memset(buffer, '\0', BUFFER_SIZE);
+			recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+			indx = read_from_buffer(indx, buffer, array_to_hold[i]);
+		}	
+	}
+}
+
+void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	int i, fd;
+	char buffer[BUFFER_SIZE];
+	printf("Expecting %d files\n", size);
+	for(i = 0; i < size; i++) {
+		char filename[256] = "test/";
+		strcat(filename, filenames[i]);
+		free(filenames[i]);
+
+		filenames[i] = filename;
+
+		printf("filename: %s\n", filename);
+
+		if((fd = open(filename, O_CREAT | O_WRONLY, 0777)) < 0) {
+			perror("Error on file open");
+		}
+
+		while(1) {
+			memset(buffer, '\0', BUFFER_SIZE);
+			recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
+			if(write_to_file(&fd, buffer)) {
+				break;
 			}
-
-			cmnd.filename = malloc(sizeof(char) * size);
-			while((indx = write_to_buffer(indx, buffer, cmnd.filename)) != -1)  {
-				memset(buffer, '\0', BUFFER_SIZE);
-				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-				size += BUFFER_SIZE;
-				cmnd.filename = realloc(cmnd.filename, sizeof(char) * size);
-			}
-			strcat(filename, cmnd.filename);
-			free(cmnd.filename);
-			cmnd.filename = filename;
-
-			int fd = open(filename, O_CREAT | O_WRONLY, 0777);
-			if (fd < 0) {
-				perror("Error opening file");
-			}
-
-			recvfrom(sock_fd, &cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
-
-			for(i = 0; i < cmnd.number_of_algos; i++) {
-				memset(buffer, '\0', BUFFER_SIZE);
-				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-				cmnd.algorithms[i] = malloc(sizeof(char) * BUFFER_SIZE);
-				strcpy(cmnd.algorithms[i], buffer);
-			}
-
-			while(1) {
-				memset(buffer, '\0', BUFFER_SIZE);
-				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-				if(write_to_file(&fd, buffer)) {
-					break;
-				}
-			}
-			close(fd);
-
-			start_benchmark(cmnd);
+		}
+		if(close(fd) < 0) {
+			perror("Error on file close");
 		}
 	}
 }
