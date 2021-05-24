@@ -16,7 +16,7 @@ void benchmark_sort(void (*f)(int *, int), int * array, int array_size);
 
 void * get_algorithm(char * algorithm_name);
 
-void start_benchmark(struct parsed_command cmnd);
+void start_benchmark(struct parsed_command * cmnd);
 
 void start_console_dialog();
 
@@ -53,19 +53,19 @@ int main(int argc, char ** argv) {
 	return 0;
 }
 
-void start_benchmark(struct parsed_command cmnd) {
+
+void start_benchmark(struct parsed_command * cmnd) {
 	int i, k;
-	for(k = 0; k < cmnd.filenames_size; k++) {
-		for(i = 0; i < cmnd.algos_size; i++) {
+	for(k = 0; k < cmnd -> filenames_size; k++) {
+		for(i = 0; i < cmnd -> algos_size; i++) {
 			int * data_array;
-			printf("%s\n", cmnd.filenames[k]);
-			printf("%d\n", cmnd.filenames[k]);
-			int size = load_array(cmnd.filenames[k], &data_array);
-			void * algorithm = get_algorithm(cmnd.algorithms[i]);
+			int size = load_array(cmnd -> filenames[k], &data_array);
+			void * algorithm = get_algorithm(cmnd -> algorithms[i]);
 			benchmark_sort(algorithm, data_array, size);
 		}
 	}
 }
+
 
 void * get_algorithm(char * algorithm_name) {
 	struct sorting_algorithm sorting_algos[] = {
@@ -83,23 +83,24 @@ void * get_algorithm(char * algorithm_name) {
 	}
 }
 
+
 int load_array(char * filename, int ** result_array) {
-	printf("fname - %s\n", filename);
-	printf("%d\n", filename);
-	FILE * fd = fopen(filename, "r");
+	char fname[256] = "test/";
+	strcat(fname, filename);
+
+	FILE * fd = fopen(fname, "r");
 	if(fd == NULL) {
 		perror("Error on file opening");
 	}
-	int allocated_size = CHUNK_SIZE;
-	int size = 0;
+
+	int allocated_size = CHUNK_SIZE, size = 0;
 	int * array = malloc(sizeof(int) * allocated_size);
+
 	while (fscanf(fd, "%d", array + size) >= 0) {
 		if (++size > allocated_size - 1) {
 			allocated_size += CHUNK_SIZE;
 			array = realloc(array, sizeof(int) * allocated_size);
 		}
-		printf("Reading %d %d\n", size, allocated_size);
-
 	}
 	*(result_array) = array;
 
@@ -159,10 +160,11 @@ void start_server() {
 	} else {
 		while (1) {
 			struct parsed_command * cmnd = receive_command(sock_fd, addr_con, addrlen);
-			start_benchmark(*cmnd);
+			start_benchmark(cmnd);
 		}
 	}
 }
+
 
 struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	struct parsed_command * cmnd = malloc(sizeof(struct parsed_command));
@@ -185,12 +187,14 @@ struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con
 
 	cmnd->algos_size = size;
 	cmnd->algorithms = malloc(size * sizeof(char*));
+
 	receive_string(cmnd->algorithms, size, sock_fd, addr_con, addrlen);
 
 	receive_files(cmnd->filenames, cmnd->filenames_size, sock_fd, addr_con, addrlen);
 
 	return cmnd;
 }
+
 
 int read_from_buffer(int indx, char * buffer, char * array) {
 	int i;
@@ -227,16 +231,15 @@ void receive_string(char ** array_to_hold, int size, int sock_fd, struct sockadd
 	}
 }
 
+
 void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	int i, fd;
 	char buffer[BUFFER_SIZE];
 	printf("Expecting %d files\n", size);
 	for(i = 0; i < size; i++) {
-		char filename[256] = "test/";
-		strcat(filename, filenames[i]);
-		free(filenames[i]);
+		char filename[258] = "test/";
 
-		filenames[i] = filename;
+		strcat(filename, filenames[i]);
 
 		printf("filename: %s\n", filename);
 
