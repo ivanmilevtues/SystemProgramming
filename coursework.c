@@ -13,7 +13,9 @@ int load_array(char * filename, int ** array);
 
 void benchmark_sort(void (*f)(int *, int), int * array, int array_size);
 
-void init_benchmark();
+void * get_algorithm(char * algorithm_name);
+
+void start_benchmark(struct parsed_command cmnd);
 
 void start_console_dialog();
 
@@ -44,8 +46,17 @@ int main(int argc, char ** argv) {
 	return 0;
 }
 
+void start_benchmark(struct parsed_command cmnd) {
+	int i;
+	for(i = 0; i < cmnd.number_of_algos; i++) {
+		int * data_array;
+		int size = load_array(cmnd.filename, &data_array);
+		void * algorithm = get_algorithm(cmnd.algorithms[i]);
+		benchmark_sort(algorithm, data_array, size);
+	}
+}
 
-void init_benchmark() {
+void * get_algorithm(char * algorithm_name) {
 	struct sorting_algorithm sorting_algos[] = {
 		{.algorithm_name = "BubbleSort", .sorting_algo_f = &bubble_sort},
 		{.algorithm_name = "QuickSort", .sorting_algo_f = &quick_sort},
@@ -53,8 +64,13 @@ void init_benchmark() {
 		{.algorithm_name = "HeapSort", .sorting_algo_f = &heap_sort},
 		{.algorithm_name = "StableSelectionSort", .sorting_algo_f = &stable_selection_sort},
 	};
+	int i;
+	for(i = 0; i < 5; i++) {
+		if(strcmp(sorting_algos[i].algorithm_name, algorithm_name) == 0) {
+			return sorting_algos[i].sorting_algo_f;
+		}
+	}
 }
-
 
 int load_array(char * filename, int ** result_array) {
 	FILE * fd = fopen(filename, "r");
@@ -91,7 +107,6 @@ void benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_si
 int write_to_file(int * fd, char * buffer) {
 	int i;
 	for(i = 0; i < BUFFER_SIZE; i++) {
-		printf("%c\n", buffer[i]);
 		if(buffer[i] == '\0') {
 			return 1;
 		}
@@ -151,10 +166,9 @@ void start_server() {
 				perror("Error opening file");
 			}
 
-			int number_of_algos;
-			recvfrom(sock_fd, &number_of_algos, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
+			recvfrom(sock_fd, &cmnd.number_of_algos, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen);
 
-			for(i = 0; i < number_of_algos; i++) {
+			for(i = 0; i < cmnd.number_of_algos; i++) {
 				memset(buffer, '\0', BUFFER_SIZE);
 				recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
 				cmnd.algorithms[i] = malloc(sizeof(char) * BUFFER_SIZE);
@@ -169,6 +183,8 @@ void start_server() {
 				}
 			}
 			close(fd);
+
+			start_benchmark(cmnd);
 		}
 	}
 }
