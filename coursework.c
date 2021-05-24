@@ -267,28 +267,29 @@ double benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_
 
 
 void listen_for_client(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	struct parsed_command cmnd;
+	struct parsed_command * cmnd = malloc(sizeof(struct parsed_command));
 	int size = 0;
 
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data");
 	}
 
-	cmnd.filenames_size = size;
-	cmnd.filenames = malloc(size * sizeof(char*));
-	receive_string(cmnd.filenames, size, sock_fd, addr_con, addrlen);
+	cmnd -> filenames_size = size;
+	cmnd -> filenames = malloc(size * sizeof(char*));
+	receive_string(cmnd -> filenames, size, sock_fd, addr_con, addrlen);
 
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data\n");
 	}
-	cmnd.algos_size = size;
-	cmnd.algorithms = malloc(size * sizeof(char*));
+	cmnd -> algos_size = size;
+	cmnd -> algorithms = malloc(size * sizeof(char*));
 
-	receive_string(cmnd.algorithms, size, sock_fd, addr_con, addrlen);
+	receive_string(cmnd -> algorithms, size, sock_fd, addr_con, addrlen);
 
-	receive_files(cmnd.filenames, cmnd.filenames_size, sock_fd, addr_con, addrlen);
+	receive_files(cmnd -> filenames, cmnd -> filenames_size, sock_fd, addr_con, addrlen);
 
-	execute_benchmark(&cmnd);
+	execute_benchmark(cmnd);
+	free_command_memory(cmnd);
 	send_benchmark_data(sock_fd, addr_con, addrlen);
 
 }

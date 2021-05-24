@@ -49,11 +49,25 @@ struct parsed_command * parse_input(char * command);
  */
 void show_results(char * filename);
 
-void start_client() {
-	printf("Client started\n");
-	while(1) {
-		int sock_fd;
+/* 
+ * Will free all memory references from the parsed_command and the parsed_command
+ * struct parsed_command * cmnd - the command which will be freed
+ */
+void free_command_memory(struct parsed_command * cmnd);
 
+void start_client() {
+	int sock_fd, addrlen;
+	printf("Client started\n");
+	struct sockaddr_in addr_con;
+	addrlen  = sizeof(addr_con);
+
+	addr_con.sin_family = AF_INET;
+	addr_con.sin_port = htons(PORT);
+	addr_con.sin_addr.s_addr = INADDR_ANY;
+	
+	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	while(1) {
 		printf("Enter what kind of benchmark you want to run...:\n");
 		printf("In order to start the benchmark enter command with the following format:\n");
 		printf("sort <pathToFileWithData1> <pathToFileWithData2> -a <algorithmName1> <algorithmName2> <algorithmName3>\n");
@@ -64,15 +78,7 @@ void start_client() {
 
 		scanf("%[^\n]", buffer);
 
-		struct parsed_command * cmnd = parse_input(buffer);
-
-		struct sockaddr_in addr_con;
-		int addrlen = sizeof(addr_con);
-
-		addr_con.sin_family = AF_INET;
-		addr_con.sin_port = htons(PORT);
-		addr_con.sin_addr.s_addr = INADDR_ANY;
-		sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+		struct parsed_command * cmnd = parse_input(buffer);	
 
 		send_data(*cmnd, sock_fd, addr_con, addrlen);
 
@@ -201,4 +207,18 @@ void receive_bin_file(char * filename, int sock_fd, struct sockaddr_in addr_con,
 
 void receive_results(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	receive_bin_file("benchmark_results", sock_fd, addr_con, addrlen);
+}
+
+void free_command_memory(struct parsed_command * cmnd) {
+	int i;
+	for(i = 0; i < cmnd -> filenames_size; i++) {
+		free(cmnd -> filenames[i]);
+	}
+	free(cmnd -> filenames);
+
+	for(i = 0; i < cmnd -> algos_size; i++) {
+		free(cmnd -> algorithms[i]);
+	}
+	free(cmnd -> algorithms);
+	free(cmnd);
 }
