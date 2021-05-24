@@ -19,8 +19,6 @@ void * get_algorithm(char * algorithm_name);
 
 void execute_benchmark(struct parsed_command * cmnd);
 
-void start_console_dialog();
-
 void start_server();
 
 struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen);
@@ -29,28 +27,31 @@ void receive_string(char ** filenames, int size, int sock_fd, struct sockaddr_in
 
 void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
+void send_benchmark_data(int sock_fd, struct sockaddr_in addr_con, int addrlen);
+
 struct sorting_algorithm {
 	char * algorithm_name;
 	void (* sorting_algo_f) (int *, int);
 };
 
 
-struct sort_res
-{
-	int array_size;
-	int algorithm_size;
-	char * algorithm;
-	double execution_time_s;
-};
-
 
 int main(int argc, char ** argv) {
-	int pid = fork();
-
-	if (pid != 0) {
-		start_server();
+	if(argc == 1) {
+		int pid = fork();
+		if (pid != 0) {
+			start_server();
+		} else {
+			start_console_dialog();
+		}	
 	} else {
-		start_console_dialog();
+		printf("%s\n", argv[1]);
+		printf("%d\n", strcmp(argv[1], "-s"));
+		if(strcmp(argv[1], "-s") == 0) {
+			start_server();
+		} else {
+			start_console_dialog();
+		}
 	}
 	return 0;
 }
@@ -74,23 +75,24 @@ int in_slowest(char * algoname, char ** algos, int size) {
 
 void execute_benchmark(struct parsed_command * cmnd) {
 	int i, k;
-
-	int fd = open("test_file", O_CREAT | O_WRONLY);
+	printf("benchmark started\n");
+	int fd = open("test_file", O_CREAT | O_WRONLY, 0777);
+	if(fd < 0) {
+		perror("Error while opening file for benchmark results");
+	}
 
 	char ** slowest_algos = malloc(cmnd -> algos_size * sizeof(char*));
 	for(k = 0; k < cmnd -> filenames_size; k++) {
 		double slowest_time = DBL_MIN;
 		for(i = 0; i < cmnd -> algos_size; i++) {
-			if(in_slowest(cmnd -> algorithms[i], slowest_algos, k + 1)) {
+			if(in_slowest(cmnd -> algorithms[i], slowest_algos, k + 1 < cmnd -> algos_size ? k + 1: cmnd -> algos_size)) {
 				continue;
 			}
-
 			struct sort_res result;
 			int * data_array;
 
 			int size = load_array(cmnd -> filenames[k], &data_array);
 			result.array_size = size;
-
 			void * algorithm = get_algorithm(cmnd -> algorithms[i]);
 			result.algorithm = cmnd -> algorithms[i];
 			result.algorithm_size = strlen(cmnd -> algorithms[i]);
@@ -105,7 +107,7 @@ void execute_benchmark(struct parsed_command * cmnd) {
 			write_res(&fd, result);
 		}
 	}
-
+	printf("benchmark finshed\n");
 	free(slowest_algos);
 	close(fd);
 }
@@ -165,24 +167,6 @@ double benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_
 }
 
 
-int write_to_file(int * fd, char * buffer) {
-	int i;
-	for(i = 0; i < BUFFER_SIZE; i++) {
-		if(buffer[i] == '\0') {
-			break;
-		}
-		if(buffer[i] == EOF) {
-			break;
-		}
-	}
-	int size = write(*fd, buffer, i);
-	if(size < 0) {
-		perror("Error while writing");
-	}
-	return i != BUFFER_SIZE;
-}
-
-
 void start_server() {
 	int i, size = BUFFER_SIZE;
 	struct sockaddr_in addr_con;
@@ -204,7 +188,6 @@ void start_server() {
 	} else {
 		while (1) {
 			struct parsed_command * cmnd = receive_command(sock_fd, addr_con, addrlen);
-			execute_benchmark(cmnd);
 		}
 	}
 }
@@ -213,6 +196,7 @@ void start_server() {
 struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	struct parsed_command * cmnd = malloc(sizeof(struct parsed_command));
 	int size = 0;
+
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data");
 	}
@@ -230,6 +214,9 @@ struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con
 	receive_string(cmnd->algorithms, size, sock_fd, addr_con, addrlen);
 
 	receive_files(cmnd->filenames, cmnd->filenames_size, sock_fd, addr_con, addrlen);
+
+	execute_benchmark(cmnd);
+	send_benchmark_data(sock_fd, addr_con, addrlen);
 
 	return cmnd;
 }
@@ -273,24 +260,15 @@ void receive_string(char ** array_to_hold, int size, int sock_fd, struct sockadd
 
 void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	int i, fd;
-	char buffer[BUFFER_SIZE];
 	for(i = 0; i < size; i++) {
 		char filename[258] = "test/";
 		strcat(filename, filenames[i]);
-
-		if((fd = open(filename, O_CREAT | O_WRONLY, 0777)) < 0) {
-			perror("Error on file open");
-		}
-
-		while(1) {
-			memset(buffer, '\0', BUFFER_SIZE);
-			recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-			if(write_to_file(&fd, buffer)) {
-				break;
-			}
-		}
-		if(close(fd) < 0) {
-			perror("Error on file close");
-		}
+		receive_file(filename, sock_fd, addr_con, addrlen);
 	}
+}
+
+
+void send_benchmark_data(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	send_file("test_file", sock_fd, addr_con, addrlen);
+	printf("Data sent...\n");
 }
