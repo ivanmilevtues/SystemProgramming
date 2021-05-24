@@ -94,12 +94,13 @@ int load_array(char * filename, int ** result_array) {
 
 
 void benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_size) {
-	time_t start, end;
-	start = time(NULL);
-	(*sorting_algo)(array, array_size);
-	end = time(NULL);
+	clock_t begin = clock();
 
-	printf("%ld, %ld, %ld\n", start, end, end - start);
+	(*sorting_algo)(array, array_size);
+	
+	clock_t end = clock();
+
+	printf("%ld, %ld, %ld, %f\n", begin, end, end - begin, (double)(end - begin) / CLOCKS_PER_SEC );
 	free(array);
 }
 
