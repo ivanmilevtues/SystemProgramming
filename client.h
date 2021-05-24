@@ -39,6 +39,8 @@ void send_string(char * string_to_send, int sock_fd, struct sockaddr_in addr_con
 void send_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 void receive_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
+void show_resutls(char * filename);
+
 void start_console_dialog() {
 	int sock_fd;
 
@@ -65,6 +67,24 @@ void start_console_dialog() {
 	send_data(*cmnd, sock_fd, addr_con, addrlen);
 
 	receive_results(sock_fd, addr_con, addrlen);
+
+	show_resutls("benchmark_results");
+}
+
+void show_resutls(char * filename) {
+	int fd = open(filename, O_RDONLY);
+	if(fd < 0) {
+		perror("Error while reading benchmark results file");
+		return;
+	}
+
+	struct sort_res res;
+	char algorithm_name[32];
+	while(read(fd, &res, sizeof(res))) {
+		read(fd, algorithm_name, res.algorithm_size * sizeof(char));
+		printf("%s took %f s to finsih sorting array of size %d\n", algorithm_name, res.execution_time_s, res.array_size);
+	}
+	printf("The last printed algorithm is the best performer!\n");
 }
 
 
