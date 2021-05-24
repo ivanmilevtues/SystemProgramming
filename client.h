@@ -10,7 +10,7 @@
 
 #define PORT 8080
 
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 256
 
 
 struct parsed_command {

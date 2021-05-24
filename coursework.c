@@ -4,19 +4,20 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <float.h>
 
 #include "sorting.h"
 #include "client.h"
 
-#define CHUNK_SIZE 10
+#define CHUNK_SIZE 64
 
 int load_array(char * filename, int ** array);
 
-void benchmark_sort(void (*f)(int *, int), int * array, int array_size);
+double benchmark_sort(void (*f)(int *, int), int * array, int array_size);
 
 void * get_algorithm(char * algorithm_name);
 
-void start_benchmark(struct parsed_command * cmnd);
+void execute_benchmark(struct parsed_command * cmnd);
 
 void start_console_dialog();
 
@@ -37,8 +38,9 @@ struct sorting_algorithm {
 struct sort_res
 {
 	int array_size;
-	char * filename;
-	char * sorting_algo;
+	int algorithm_size;
+	char * algorithm;
+	double execution_time_s;
 };
 
 
@@ -54,26 +56,68 @@ int main(int argc, char ** argv) {
 }
 
 
-void start_benchmark(struct parsed_command * cmnd) {
-	int i, k;
-	for(k = 0; k < cmnd -> filenames_size; k++) {
-		for(i = 0; i < cmnd -> algos_size; i++) {
-			int * data_array;
-			int size = load_array(cmnd -> filenames[k], &data_array);
-			void * algorithm = get_algorithm(cmnd -> algorithms[i]);
-			benchmark_sort(algorithm, data_array, size);
+void write_res(int * fd, struct sort_res result) {
+	write(*fd, &result, sizeof(struct sort_res));
+	write(*fd, result.algorithm, sizeof(char) * result.algorithm_size);
+}
+
+int in_slowest(char * algoname, char ** algos, int size) {
+	int i;
+	for (i = 0; i < size; i++) {
+		if (algos[i] == algoname) {
+			return 1;
 		}
 	}
+	return 0;
+}
+
+
+void execute_benchmark(struct parsed_command * cmnd) {
+	int i, k;
+
+	int fd = open("test_file", O_CREAT | O_WRONLY);
+
+	char ** slowest_algos = malloc(cmnd -> algos_size * sizeof(char*));
+	for(k = 0; k < cmnd -> filenames_size; k++) {
+		double slowest_time = DBL_MIN;
+		for(i = 0; i < cmnd -> algos_size; i++) {
+			if(in_slowest(cmnd -> algorithms[i], slowest_algos, k + 1)) {
+				continue;
+			}
+
+			struct sort_res result;
+			int * data_array;
+
+			int size = load_array(cmnd -> filenames[k], &data_array);
+			result.array_size = size;
+
+			void * algorithm = get_algorithm(cmnd -> algorithms[i]);
+			result.algorithm = cmnd -> algorithms[i];
+			result.algorithm_size = strlen(cmnd -> algorithms[i]);
+
+			result.execution_time_s = benchmark_sort(algorithm, data_array, size);
+
+			if(result.execution_time_s > slowest_time) {
+				slowest_time = result.execution_time_s;
+				slowest_algos[k] = cmnd -> algorithms[i];
+			}
+
+			write_res(&fd, result);
+		}
+	}
+
+	free(slowest_algos);
+	close(fd);
 }
 
 
 void * get_algorithm(char * algorithm_name) {
 	struct sorting_algorithm sorting_algos[] = {
-		{.algorithm_name = "BubbleSort", .sorting_algo_f = &bubble_sort},
-		{.algorithm_name = "QuickSort", .sorting_algo_f = &quick_sort},
-		{.algorithm_name = "SelectionSort", .sorting_algo_f = &selection_sort},
-		{.algorithm_name = "HeapSort", .sorting_algo_f = &heap_sort},
-		{.algorithm_name = "StableSelectionSort", .sorting_algo_f = &stable_selection_sort},
+		{.algorithm_name = "BubbleSort\0", .sorting_algo_f = &bubble_sort},
+		{.algorithm_name = "QuickSort\0", .sorting_algo_f = &quick_sort},
+		{.algorithm_name = "SelectionSort\0", .sorting_algo_f = &selection_sort},
+		{.algorithm_name = "HeapSort\0", .sorting_algo_f = &heap_sort},
+		{.algorithm_name = "StableSelectionSort\0", .sorting_algo_f = &stable_selection_sort},
 	};
 	int i;
 	for(i = 0; i < 5; i++) {
@@ -109,15 +153,15 @@ int load_array(char * filename, int ** result_array) {
 }
 
 
-void benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_size) {
-	clock_t begin = clock();
+double benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_size) {
 
-	(*sorting_algo)(array, array_size);
-	
+	clock_t begin = clock();
+	(*sorting_algo)(array, array_size);	
 	clock_t end = clock();
 
-	printf("%ld, %ld, %ld, %f\n", begin, end, end - begin, (double)(end - begin) / CLOCKS_PER_SEC );
 	free(array);
+
+	return (double)(end - begin) / CLOCKS_PER_SEC;
 }
 
 
@@ -160,7 +204,7 @@ void start_server() {
 	} else {
 		while (1) {
 			struct parsed_command * cmnd = receive_command(sock_fd, addr_con, addrlen);
-			start_benchmark(cmnd);
+			execute_benchmark(cmnd);
 		}
 	}
 }
