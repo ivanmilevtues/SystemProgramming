@@ -1,33 +1,106 @@
 // Тема №29
-#include <stdio.h> 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <float.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 
 #include "sorting.h"
+#include "utils.h"
+#include "socket_utils.h"
 #include "client.h"
+
+// sort test_data_1 test_data_2 test_data_3 test_data_4 test_data_5 -a QuickSort BubbleSort SelectionSort HeapSort StableSelectionSort
 
 #define CHUNK_SIZE 64
 
+/*
+ * Will load the contents of file with name filename in the giver array
+ * char * filename - filename in which the data is stored
+ * int ** array - pointer to the array in which the data will loaded
+ * returns the size of the array in which the data was loaded
+ */
 int load_array(char * filename, int ** array);
 
+/*
+ * Will benchmark the passed algorithm with the given array
+ * void (*f)(int *, int) - pointer to the method which will be used for sorting.
+ * int * array - the array which will be sorted by the passed method
+ * int array_size - the size of the passed array
+ * returns the time taken for the benchmark to complete in seconds
+ */
 double benchmark_sort(void (*f)(int *, int), int * array, int array_size);
 
+/*
+ * Given the algorithm name the function will return pointer to the coresponding function
+ * char * algorithm_name - the name of the algorithm
+ * returns pointer to the function for the algorithm_name if not found void will be returned
+ */
 void * get_algorithm(char * algorithm_name);
 
+/*
+ * Execute the complete benchmark - times it and returns the results to the client
+ * struct parsed_command * cmnd - command which will be used as parameters for the benchmark
+ */
 void execute_benchmark(struct parsed_command * cmnd);
 
+/*
+ * Starts the server
+ */
 void start_server();
 
-struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
-void receive_string(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen);
+/*
+ * Will listen for the client commands and execute them(start the benchmark)
+ * int sock_fd - socket file descriptor
+ * struct sockaddr_in addr_con - destination address
+ * int addrlen - the size of the addr
+ */
+void listen_for_client(int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
+/*
+ * Will expect and read the contents of number of files from the socket. The read files will be save in files with names from filenames
+ * For each file recieve_file will be called.
+ * char ** filenames - the names of the files in which the received contents will be saved
+ * int size - the size of filenames
+ * int sock_fd - socket file descriptor
+ * struct sockaddr_in addr_con - destination address
+ * int addrlen - the size of the addr
+ */
 void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
+
+/*
+ * Will send the contents of the benchmark file
+ * int sock_fd - socket file descriptor
+ * struct sockaddr_in addr_con - destination address
+ * int addrlen - the size of the addr
+ */
 void send_benchmark_data(int sock_fd, struct sockaddr_in addr_con, int addrlen);
+
+/* 
+ * Will write struct sort_res result in the binary file with descriptor fd
+ * int * fd - file descriptor
+ * struct sort_res result - structure to be written
+ */
+void write_sort_result(int * fd, struct sort_res result);
+
+/*
+ * Will check if algoname is contained in algos. The check is done via POINTER ADDRESS NOT STRCMP.
+ * char * algoname - the searched string
+ * char ** algos - the collection in which it is searched
+ * int size - the size of algos
+ * returns 0 if algoname not found else 1
+ */
+int in_slowest(char * algoname, char ** algos, int size);
 
 struct sorting_algorithm {
 	char * algorithm_name;
@@ -42,25 +115,51 @@ int main(int argc, char ** argv) {
 		if (pid != 0) {
 			start_server();
 		} else {
-			start_console_dialog();
+			start_client();
 		}	
 	} else {
-		printf("%s\n", argv[1]);
-		printf("%d\n", strcmp(argv[1], "-s"));
 		if(strcmp(argv[1], "-s") == 0) {
 			start_server();
 		} else {
-			start_console_dialog();
+			start_client();
 		}
 	}
 	return 0;
 }
 
 
-void write_res(int * fd, struct sort_res result) {
+void start_server() {
+	printf("Server started\n");
+	int i, size = BUFFER_SIZE;
+	struct sockaddr_in addr_con;
+	char filename[128] = "test/";
+	char file[BUFFER_SIZE];
+
+	int addrlen = sizeof(addr_con);
+
+	addr_con.sin_family = AF_INET;
+	addr_con.sin_port = htons(PORT);
+	addr_con.sin_addr.s_addr = INADDR_ANY;
+
+
+	int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sock_fd < 0) {
+		perror("Error on socket connection");
+	} else if(bind(sock_fd, (struct sockaddr*)&addr_con, sizeof(addr_con))) {
+		perror("Error while binding");
+	} else {
+		while (1) {
+			listen_for_client(sock_fd, addr_con, addrlen);
+		}
+	}
+}
+
+
+void write_sort_result(int * fd, struct sort_res result) {
 	write(*fd, &result, sizeof(struct sort_res));
 	write(*fd, result.algorithm, sizeof(char) * result.algorithm_size);
 }
+
 
 int in_slowest(char * algoname, char ** algos, int size) {
 	int i;
@@ -104,7 +203,7 @@ void execute_benchmark(struct parsed_command * cmnd) {
 				slowest_algos[k] = cmnd -> algorithms[i];
 			}
 
-			write_res(&fd, result);
+			write_sort_result(&fd, result);
 		}
 	}
 	printf("benchmark finshed\n");
@@ -167,94 +266,31 @@ double benchmark_sort(void (*sorting_algo) (int *, int), int * array, int array_
 }
 
 
-void start_server() {
-	int i, size = BUFFER_SIZE;
-	struct sockaddr_in addr_con;
-	char filename[128] = "test/";
-	char file[BUFFER_SIZE];
-
-	int addrlen = sizeof(addr_con);
-
-	addr_con.sin_family = AF_INET;
-	addr_con.sin_port = htons(PORT);
-	addr_con.sin_addr.s_addr = INADDR_ANY;
-
-
-	int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock_fd < 0) {
-		perror("Error on socket connection");
-	} else if(bind(sock_fd, (struct sockaddr*)&addr_con, sizeof(addr_con))) {
-		perror("Error while binding");
-	} else {
-		while (1) {
-			struct parsed_command * cmnd = receive_command(sock_fd, addr_con, addrlen);
-		}
-	}
-}
-
-
-struct parsed_command * receive_command(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	struct parsed_command * cmnd = malloc(sizeof(struct parsed_command));
+void listen_for_client(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
+	struct parsed_command cmnd;
 	int size = 0;
 
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data");
 	}
 
-	cmnd->filenames_size = size;
-	cmnd->filenames = malloc(size * sizeof(char*));
-	receive_string(cmnd->filenames, size, sock_fd, addr_con, addrlen);
+	cmnd.filenames_size = size;
+	cmnd.filenames = malloc(size * sizeof(char*));
+	receive_string(cmnd.filenames, size, sock_fd, addr_con, addrlen);
 
 	if (recvfrom(sock_fd, &size, sizeof(int), 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 		perror("Error recieving data\n");
 	}
-	cmnd->algos_size = size;
-	cmnd->algorithms = malloc(size * sizeof(char*));
+	cmnd.algos_size = size;
+	cmnd.algorithms = malloc(size * sizeof(char*));
 
-	receive_string(cmnd->algorithms, size, sock_fd, addr_con, addrlen);
+	receive_string(cmnd.algorithms, size, sock_fd, addr_con, addrlen);
 
-	receive_files(cmnd->filenames, cmnd->filenames_size, sock_fd, addr_con, addrlen);
+	receive_files(cmnd.filenames, cmnd.filenames_size, sock_fd, addr_con, addrlen);
 
-	execute_benchmark(cmnd);
+	execute_benchmark(&cmnd);
 	send_benchmark_data(sock_fd, addr_con, addrlen);
 
-	return cmnd;
-}
-
-
-int read_from_buffer(int indx, char * buffer, char * array) {
-	int i;
-	for(i = 0; i < BUFFER_SIZE; i++, indx++) {
-		if(buffer[i] == '\0') {
-			return -1;
-		}
-		array[indx] = buffer[i];
-	}
-
-	return indx;
-}
-
-
-void receive_string(char ** array_to_hold, int size, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	char buffer[BUFFER_SIZE];
-	memset(buffer, '\0', BUFFER_SIZE);
-	int i, indx;
-	
-	for(i = 0; i < size; i++) {
-		array_to_hold[i] = malloc(sizeof(char) * size);
-		recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-		indx = 0;
-		indx = read_from_buffer(indx, buffer, array_to_hold[i]);
-		
-		while(indx != -1)  {
-			size += BUFFER_SIZE;
-			array_to_hold[i] = realloc(array_to_hold[i], sizeof(char) * size);
-
-			memset(buffer, '\0', BUFFER_SIZE);
-			recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen);
-			indx = read_from_buffer(indx, buffer, array_to_hold[i]);
-		}	
-	}
 }
 
 
@@ -270,5 +306,4 @@ void receive_files(char ** filenames, int size, int sock_fd, struct sockaddr_in 
 
 void send_benchmark_data(int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	send_file("test_file", sock_fd, addr_con, addrlen);
-	printf("Data sent...\n");
 }

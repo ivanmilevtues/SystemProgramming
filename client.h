@@ -1,17 +1,4 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
-#define PORT 8080
-
-#define BUFFER_SIZE 256
-
+#define LINE_SIZE 1000
 
 struct parsed_command {
 	int filenames_size;
@@ -30,48 +17,72 @@ struct sort_res
 };
 
 
+/*
+ * Will send the parsed command as well as the needed files for the benchmark to the server
+ * struct parsed_command cmnd - the command which will be sent
+ * int sock_fd - socket file descriptor
+ * struct sockaddr_in addr_con - destination address
+ * int addrlen - the size of the addr
+ */
 void send_data(struct parsed_command cmnd, int sock_fd, struct sockaddr_in addr_con, int addrlen);
+
+/*
+ * Will expect and read the contents of a the file with the benchmark results from the socket. 
+ * The read file will be saved in benchmark_result
+ * 
+ * int sock_fd - socket file descriptor
+ * struct sockaddr_in addr_con - destination address
+ * int addrlen - the size of the addr
+ */
 void receive_results(int sock_fd, struct sockaddr_in addr_con, int addrlen);
 
+/*
+ * Will parse the command entered by the user into struct parsed_commadn
+ * char * command - string which is the user's input line
+ * returns the parsed result
+ */
 struct parsed_command * parse_input(char * command);
 
-void send_string(char * string_to_send, int sock_fd, struct sockaddr_in addr_con, int addrlen);
-void send_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen);
-void receive_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen);
+/*
+ * Will print the results of the benchmark to stdout
+ * char * filename - path to the file in which the results are held
+ */
+void show_results(char * filename);
 
-void show_resutls(char * filename);
+void start_client() {
+	printf("Client started\n");
+	while(1) {
+		int sock_fd;
 
-void start_console_dialog() {
-	int sock_fd;
+		printf("Enter what kind of benchmark you want to run...:\n");
+		printf("In order to start the benchmark enter command with the following format:\n");
+		printf("sort <pathToFileWithData1> <pathToFileWithData2> -a <algorithmName1> <algorithmName2> <algorithmName3>\n");
+		printf("You can pass as many alogrithms as you want from the following list:\n ");
+		printf("BubbleSort, QuickSort, SelectionSort, HeapSort, StableSelectionSort\n");
 
-	printf("Enter what kind of benchmark you want to run...:\n");
-	printf("In order to start the benchmark enter command with the following format:\n");
-	printf("sort <pathToFileWithData1> <pathToFileWithData2> -a <algorithmName1> <algorithmName2> <algorithmName3>\n");
-	printf("You can pass as many alogrithms as you want from the following list:\n ");
-	printf("BubbleSort, QuickSort, SelectionSort, HeapSort, StableSelectionSort\n");
+		char buffer[LINE_SIZE];
 
-	char buffer[100];
+		scanf("%[^\n]", buffer);
 
-	scanf("%[^\n]", buffer);
+		struct parsed_command * cmnd = parse_input(buffer);
 
-	struct parsed_command * cmnd = parse_input(buffer);
+		struct sockaddr_in addr_con;
+		int addrlen = sizeof(addr_con);
 
-	struct sockaddr_in addr_con;
-	int addrlen = sizeof(addr_con);
+		addr_con.sin_family = AF_INET;
+		addr_con.sin_port = htons(PORT);
+		addr_con.sin_addr.s_addr = INADDR_ANY;
+		sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-	addr_con.sin_family = AF_INET;
-	addr_con.sin_port = htons(PORT);
-	addr_con.sin_addr.s_addr = INADDR_ANY;
-	sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+		send_data(*cmnd, sock_fd, addr_con, addrlen);
 
-	send_data(*cmnd, sock_fd, addr_con, addrlen);
+		receive_results(sock_fd, addr_con, addrlen);
 
-	receive_results(sock_fd, addr_con, addrlen);
-
-	show_resutls("benchmark_results");
+		show_results("benchmark_results");
+	}	
 }
 
-void show_resutls(char * filename) {
+void show_results(char * filename) {
 	int fd = open(filename, O_RDONLY);
 	if(fd < 0) {
 		perror("Error while reading benchmark results file");
@@ -79,30 +90,19 @@ void show_resutls(char * filename) {
 	}
 
 	struct sort_res res;
-	char algorithm_name[32];
+	char algorithm_name[BUFFER_SIZE];
 	while(read(fd, &res, sizeof(res))) {
+		memset(algorithm_name, '\0', BUFFER_SIZE);
 		read(fd, algorithm_name, res.algorithm_size * sizeof(char));
+		if(res.algorithm_size == 0) {
+			break;
+		}
 		printf("%s took %f s to finsih sorting array of size %d\n", algorithm_name, res.execution_time_s, res.array_size);
 	}
+
 	printf("The last printed algorithm is the best performer!\n");
-}
 
-
-int write_to_file(int * fd, char * buffer) {
-	int i;
-	for(i = 0; i < BUFFER_SIZE; i++) {
-		if(buffer[i] == '\0') {
-			break;
-		}
-		if(buffer[i] == EOF) {
-			break;
-		}
-	}
-	int size = write(*fd, buffer, i);
-	if(size < 0) {
-		perror("Error while writing");
-	}
-	return i != BUFFER_SIZE;
+	close(fd);
 }
 
 struct parsed_command * parse_input(char * command) {
@@ -147,32 +147,6 @@ struct parsed_command * parse_input(char * command) {
 }
 
 
-int read_file_buf(int* fd, char * buf) {
-	int sizing = read(*fd, buf, BUFFER_SIZE);
-	if(sizing < 0) {
-		perror("An error occured while reading file");
-		return 0;
-	}
-	if(sizing != BUFFER_SIZE) {
-		buf[sizing] = EOF;
-	}
-	return sizing != 0;
-}
-
-
-int write_to_buffer(int indx, char * read_from, char * buffer) {
-	int i;
-	for(i = 0; i < BUFFER_SIZE; i++, indx++) {
-		if(read_from[indx] == '\0') {
-			return -1;
-		}
-		buffer[i] = read_from[indx];
-	}
-
-	return indx;
-}
-
-
 void send_data(struct parsed_command cmnd, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	int i, indx = 0;
 
@@ -196,70 +170,6 @@ void send_data(struct parsed_command cmnd, int sock_fd, struct sockaddr_in addr_
 }
 
 
-void send_string(char * string_to_send, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	char buffer[BUFFER_SIZE];
-	int indx = 0;
-	while(indx != -1) {
-		memset(buffer, '\0', BUFFER_SIZE);
-		indx = write_to_buffer(indx, string_to_send, buffer);
-		sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen);
-	}
-}
-
-
-void send_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	printf("%s sending file\n", filename);
-	int fd = open(filename, O_RDONLY);
-	if(fd < 0) {
-		perror("Error on file to send opening");
-	}
-	char buffer[BUFFER_SIZE];
-
-	if (sock_fd < 0) {
-		perror("socket initialization failed\n");
-	} else {
-		while(1) {
-			int read = read_file_buf(&fd, buffer);
-			if(sendto(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, addrlen) < 0) {
-				perror("Error sending file content");
-			}
-			if(!read) {
-				break;
-			}
-			memset(buffer, '\0', BUFFER_SIZE);
-		}
-	}
-
-	if (close(fd) < 0)  {
-		perror("Error on file to send closing");
-	}
-}
-
-
-void receive_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
-	char buffer[BUFFER_SIZE];
-	int fd;
-
-	if((fd = open(filename, O_CREAT | O_WRONLY, 0777)) < 0) {
-		perror("Error on file open");
-	}
-
-	while(1) {
-		memset(buffer, '\0', BUFFER_SIZE);
-		printf("Waiting for data...\n");
-		if(recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
-			perror("Error while receiving file content");
-		}
-		printf("Data Recevide: %s\n", filename);
-		if(write_to_file(&fd, buffer)) {
-			break;
-		}
-	}
-	if(close(fd) < 0) {
-		perror("Error on file close");
-	}
-}
-
 void receive_bin_file(char * filename, int sock_fd, struct sockaddr_in addr_con, int addrlen) {
 	char buffer[BUFFER_SIZE];
 	int fd;
@@ -270,11 +180,9 @@ void receive_bin_file(char * filename, int sock_fd, struct sockaddr_in addr_con,
 
 	while(1) {
 		memset(buffer, '\0', BUFFER_SIZE);
-		printf("Waiting for data...\n");
 		if(recvfrom(sock_fd, buffer, BUFFER_SIZE, 0, (struct sockaddr*) &addr_con, &addrlen) < 0) {
 			perror("Error while receiving file content");
 		}
-		printf("Data Recevide: %s\n", filename);
 		int i;
 		for(i = 0; i < BUFFER_SIZE; i++) {
 			if(buffer[i] == EOF) {
